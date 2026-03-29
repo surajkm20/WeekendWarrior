@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(java -cp target/ticket-notifier-1.0.0.jar com.rcb.notifier.TestNotification)",
+      "Bash(mvn package:*)",
+      "Bash(java -cp target/ticket-notifier-1.0.0.jar com.rcb.notifier.PageExplorer)"
+    ]
+  }
+}

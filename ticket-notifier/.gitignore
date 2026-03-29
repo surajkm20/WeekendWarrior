@@ -1,0 +1,17 @@
+# Secrets — never commit this
+.env
+
+# Maven build output
+target/
+
+# Runtime data — not source code
+state.json
+session.json
+
+# macOS junk
+.DS_Store
+
+# IDE files
+.idea/
+*.iml
+.vscode/

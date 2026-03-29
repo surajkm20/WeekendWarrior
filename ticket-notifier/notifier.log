@@ -1,0 +1,164 @@
+=== RCB Ticket Notifier Starting ===
+Polling every 2 minute(s).
+Watching: https://shop.royalchallengers.com/ticket
+=====================================
+
+[Poll] Running check at 17:41:58.221249
+[TicketScraper] Checking: https://shop.royalchallengers.com/ticket
+[TicketScraper] Final URL: https://shop.royalchallengers.com/ticket
+[TicketScraper] Page text preview:
+---
+#playbold
+download
+our app
+home
+news
+rcb tv
+team
+fixtures
+echo of fans
+rcb bar & cafe
+shop
+more
+tickets
+merchandise
+
+sat, mar 28, 2026 07:30 pm
+
+royal challengers bengaluru
+
+vs
+
+sunrisers hyderabad
+
+rs 3750 - 47000
+buy tickets
+
+get in touch for query
+
++91 8884864040
+
+rcbtickets@ticketgenie.in
+
+venue
+
+m. chinnaswamy stadium, bengaluru
+
+stand view
+parking
+
+© royal challengers sports pvt. ltd.
+---
+[TicketScraper] Keyword matches → notAvailable=false await=false
+[TicketScraper] Tickets available: true
+[Poll] *** TICKETS ARE LIVE — SENDING ALERT! ***
+[TelegramNotifier] Sending Telegram alert...
+[TelegramNotifier] Message sent successfully!
+[StateManager] State saved → ticketsAvailable=true
+
+[Poll] Running check at 17:43:58.224943
+[TicketScraper] Checking: https://shop.royalchallengers.com/ticket
+[TicketScraper] Final URL: https://shop.royalchallengers.com/ticket
+[TicketScraper] Page text preview:
+---
+#playbold
+download
+our app
+home
+news
+rcb tv
+team
+fixtures
+echo of fans
+rcb bar & cafe
+shop
+more
+tickets
+merchandise
+
+sat, mar 28, 2026 07:30 pm
+
+royal challengers bengaluru
+
+vs
+
+sunrisers hyderabad
+
+rs 3750 - 47000
+buy tickets
+
+get in touch for query
+
++91 8884864040
+
+rcbtickets@ticketgenie.in
+
+venue
+
+m. chinnaswamy stadium, bengaluru
+
+stand view
+parking
+
+© royal challengers sports pvt. ltd.
+---
+[TicketScraper] Keyword matches → notAvailable=false await=false
+[TicketScraper] Tickets available: true
+[Poll] *** TICKETS ARE LIVE — SENDING ALERT! ***
+[TelegramNotifier] Sending Telegram alert...
+[TelegramNotifier] Message sent successfully!
+[StateManager] State saved → ticketsAvailable=true
+
+[Poll] Running check at 17:45:58.224867
+[TicketScraper] Checking: https://shop.royalchallengers.com/ticket
+[TicketScraper] Final URL: https://shop.royalchallengers.com/ticket
+[TicketScraper] Page text preview:
+---
+#playbold
+download
+our app
+home
+news
+rcb tv
+team
+fixtures
+echo of fans
+rcb bar & cafe
+shop
+more
+tickets
+merchandise
+
+sat, mar 28, 2026 07:30 pm
+
+royal challengers bengaluru
+
+vs
+
+sunrisers hyderabad
+
+rs 3750 - 47000
+buy tickets
+
+get in touch for query
+
++91 8884864040
+
+rcbtickets@ticketgenie.in
+
+venue
+
+m. chinnaswamy stadium, bengaluru
+
+stand view
+parking
+
+© royal challengers sports pvt. ltd.
+---
+[TicketScraper] Keyword matches → notAvailable=false await=false
+[TicketScraper] Tickets available: true
+[Poll] *** TICKETS ARE LIVE — SENDING ALERT! ***
+[TelegramNotifier] Sending Telegram alert...
+[TelegramNotifier] Message sent successfully!
+[StateManager] State saved → ticketsAvailable=true
+
