@@ -23,13 +23,19 @@ ollama pull nomic-embed-text
 > If you use llama3.1:8b, update `LLM_MODEL` in `config.py`.
 
 ### 3. Create Python environment
+> Requires **Python 3.11**. Python 3.14 is incompatible with `python-engineio`
+> (used by Chainlit) — its background ping task crashes with
+> `RuntimeError: Timeout should be used inside a task`, which spins in a
+> tight retry loop and prevents the server from responding.
 ```bash
 cd /Users/zoro/Documents/SecureDoc_RAG
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 > ChromaDB compilation takes ~2 min on first install — this is normal.
+> First run also downloads the `cross-encoder/ms-marco-MiniLM-L-6-v2`
+> reranker model from Hugging Face (~90MB).
 
 ---
 
