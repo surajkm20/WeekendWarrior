@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AirLLM RAG — Architecture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0f1117;
+      color: #e0e0e0;
+      padding: 40px 20px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 2rem;
+      color: #ffffff;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      text-align: center;
+      color: #888;
+      font-size: 0.95rem;
+      margin-bottom: 48px;
+    }
+    .section-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #a78bfa;
+      margin-bottom: 20px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-left: 4px solid #a78bfa;
+      padding-left: 12px;
+    }
+    .section { margin-bottom: 56px; max-width: 1000px; margin-left: auto; margin-right: auto; }
+
+    /* ── Stack diagram ── */
+    .stack { display: flex; flex-direction: column; gap: 0; align-items: center; }
+    .stack-layer {
+      width: 100%;
+      max-width: 680px;
+      padding: 16px 24px;
+      border-radius: 0;
+      text-align: center;
+      font-size: 0.95rem;
+      position: relative;
+    }
+    .stack-layer:first-child { border-radius: 12px 12px 0 0; }
+    .stack-layer:last-child  { border-radius: 0 0 12px 12px; }
+    .stack-layer .label   { font-weight: 700; font-size: 1rem; }
+    .stack-layer .desc    { font-size: 0.82rem; color: #ccc; margin-top: 4px; }
+    .stack-layer .badge   { font-size: 0.72rem; background: rgba(0,0,0,0.25); border-radius: 20px; padding: 2px 10px; margin-top: 6px; display: inline-block; }
+    .l1 { background: #1e3a5f; border: 1px solid #2d6a9f; }
+    .l2 { background: #1a3a2a; border: 1px solid #2d7a4f; }
+    .l3 { background: #3a2a1a; border: 1px solid #8a5a2a; }
+    .l4 { background: #2a1a3a; border: 1px solid #6a3a8a; }
+    .l5 { background: #3a1a1a; border: 1px solid #8a3a3a; }
+    .arrow-down {
+      font-size: 1.4rem;
+      color: #555;
+      text-align: center;
+      line-height: 1;
+      padding: 0;
+      width: 100%;
+      max-width: 680px;
+    }
+
+    /* ── Flow cards ── */
+    .flow { display: flex; flex-direction: column; gap: 12px; }
+    .flow-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      background: #1a1d26;
+      border: 1px solid #2a2d3a;
+      border-radius: 10px;
+      padding: 16px 20px;
+    }
+    .step-num {
+      min-width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+    }
+    .ingest-num { background: #1e3a5f; color: #60a5fa; }
+    .query-num  { background: #1a3a2a; color: #4ade80; }
+    .step-content .title { font-weight: 600; font-size: 0.95rem; color: #fff; }
+    .step-content .detail { font-size: 0.82rem; color: #aaa; margin-top: 4px; }
+    .step-content code {
+      background: #2a2d3a;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      color: #f9a8d4;
+      font-family: monospace;
+    }
+
+    /* ── Two-column grid ── */
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+    .card {
+      background: #1a1d26;
+      border: 1px solid #2a2d3a;
+      border-radius: 10px;
+      padding: 20px;
+    }
+    .card h3 { font-size: 0.95rem; color: #fff; margin-bottom: 10px; }
+    .card ul { list-style: none; padding: 0; }
+    .card ul li {
+      font-size: 0.83rem;
+      color: #aaa;
+      padding: 5px 0;
+      border-bottom: 1px solid #2a2d3a;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .card ul li:last-child { border-bottom: none; }
+    .card ul li .val { color: #e0e0e0; text-align: right; }
+
+    /* ── File table ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th {
+      background: #1a1d26;
+      color: #a78bfa;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+      border-bottom: 2px solid #2a2d3a;
+    }
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #1a1d26;
+      color: #ccc;
+      vertical-align: top;
+    }
+    tr:nth-child(even) td { background: #141720; }
+    td code {
+      background: #2a2d3a;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      color: #f9a8d4;
+      font-family: monospace;
+    }
+
+    /* ── Data flow diagram ── */
+    .dataflow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 0;
+      margin-top: 8px;
+    }
+    .df-box {
+      background: #1a1d26;
+      border: 1px solid #2a2d3a;
+      border-radius: 8px;
+      padding: 10px 16px;
+      text-align: center;
+      font-size: 0.8rem;
+    }
+    .df-box .name { font-weight: 700; color: #fff; }
+    .df-box .sub  { color: #888; font-size: 0.72rem; margin-top: 2px; }
+    .df-arrow {
+      font-size: 1.2rem;
+      color: #444;
+      padding: 0 6px;
+    }
+
+    .callout {
+      max-width: 1000px;
+      margin: 0 auto 56px auto;
+      background: #2a1a1a;
+      border: 1px solid #8a3a3a;
+      border-radius: 10px;
+      padding: 16px 20px;
+      font-size: 0.85rem;
+      color: #f0b8b8;
+      line-height: 1.6;
+    }
+    .callout strong { color: #ffffff; }
+
+    footer {
+      text-align: center;
+      color: #444;
+      font-size: 0.78rem;
+      margin-top: 60px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>AirLLM RAG — System Architecture</h1>
+  <p class="subtitle">Server-less LLM · Layer-Streamed Inference · Local Embeddings · Private Documents</p>
+
+  <div class="callout">
+    <strong>⚠ Hardware note:</strong> AirLLM streams model layers from disk instead of loading the whole
+    model into memory, which is what lets a 70B model run without 140GB of RAM. It targets CUDA GPUs —
+    on a machine without an NVIDIA GPU it falls back to CPU-only execution, which is far slower.
+    There is also no native token streaming: the model returns a complete answer in one blocking call.
+  </div>
+
+  <!-- ── 1. TECHNOLOGY STACK ── -->
+  <div class="section">
+    <div class="section-title">1. Technology Stack</div>
+    <div class="stack">
+      <div class="stack-layer l1">
+        <div class="label">Browser (Chat UI)</div>
+        <div class="desc">Chat interface served at http://localhost:8000</div>
+        <div class="badge">Chainlit 2.10 — built-in, no HTML/CSS/JS needed</div>
+      </div>
+      <div class="arrow-down">↕ WebSocket (python-socketio)</div>
+      <div class="stack-layer l2">
+        <div class="label">Application Layer</div>
+        <div class="desc">FastAPI server + event handlers (@on_chat_start, @on_message)</div>
+        <div class="badge">app.py</div>
+      </div>
+      <div class="arrow-down">↕ Python function calls</div>
+      <div class="stack-layer l3">
+        <div class="label">Retrieval Layer</div>
+        <div class="desc">Hybrid BM25 + vector search (RRF fusion), then cross-encoder re-ranking</div>
+        <div class="badge">langchain-community BM25Retriever · sentence-transformers CrossEncoder</div>
+      </div>
+      <div class="arrow-down">↕ direct Python calls — no server, no HTTP</div>
+      <div class="stack-layer l4">
+        <div class="label">In-Process Model Runtime</div>
+        <div class="desc">Loads the LLM's weights directly, splitting them into per-layer shards on disk</div>
+        <div class="badge">AirLLM · airllm.AutoModel</div>
+      </div>
+      <div class="arrow-down">↕ streams one layer at a time from disk into memory</div>
+      <div class="stack-layer l5">
+        <div class="label">AI Models (on disk)</div>
+        <div class="desc">Meta-Llama-3.1-70B-Instruct — answer generation &nbsp;|&nbsp; all-mpnet-base-v2 — text embeddings</div>
+        <div class="badge">~/.cache/huggingface/ · sharded per-layer on first load</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 2. INGESTION FLOW ── -->
+  <div class="section">
+    <div class="section-title">2. Ingestion Flow — <code style="font-size:0.9rem;background:#2a2d3a;padding:2px 8px;border-radius:4px;color:#f9a8d4">python ingest.py</code></div>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-num ingest-num">1</div>
+        <div class="step-content">
+          <div class="title">Load Documents from <code>./docs/</code></div>
+          <div class="detail">pdfplumber extracts prose text + tables per PDF page (tables formatted as pipe-separated rows so columns stay unambiguous). DirectoryLoader also picks up .docx and .txt. Every document carries metadata: source filename + page number.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num ingest-num">2</div>
+        <div class="step-content">
+          <div class="title">Split into Chunks</div>
+          <div class="detail">RecursiveCharacterTextSplitter splits text into chunks of <code>1500 chars</code> with <code>300 char overlap</code>. Overlap prevents losing context at boundaries. Tries to split on paragraphs → sentences → words.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num ingest-num">3</div>
+        <div class="step-content">
+          <div class="title">Generate Embeddings Locally</div>
+          <div class="detail">Each chunk is embedded with <code>sentence-transformers/all-mpnet-base-v2</code>, running directly in-process (no server, unlike AirLLM's generation step). Returns a 768-dim vector representing the semantic meaning of that chunk.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num ingest-num">4</div>
+        <div class="step-content">
+          <div class="title">Store in ChromaDB</div>
+          <div class="detail">Vectors + original text + metadata are persisted to <code>./vectorstore/</code> on disk. ChromaDB uses HNSW index for fast similarity search. This step only runs once per document set.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 3. QUERY FLOW ── -->
+  <div class="section">
+    <div class="section-title">3. Query Flow — what happens when you ask a question</div>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-num query-num">1</div>
+        <div class="step-content">
+          <div class="title">User types a question in the browser</div>
+          <div class="detail">Chainlit captures the message and sends it to <code>on_message()</code> in app.py via WebSocket.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num query-num">2</div>
+        <div class="step-content">
+          <div class="title">Contextualize the Question (if chat history exists)</div>
+          <div class="detail">Follow-up questions are rephrased into standalone questions by running the contextualize prompt through AirLLM. This blocking call executes on a background thread so it doesn't freeze the WebSocket event loop.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num query-num">3</div>
+        <div class="step-content">
+          <div class="title">Hybrid Retrieval: BM25 + Vector Search</div>
+          <div class="detail">The standalone question is run through BM25 (keyword match) and ChromaDB vector similarity in parallel. Results are merged with Reciprocal Rank Fusion into a candidate set of <code>TOP_K_RESULTS × 4</code> chunks.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num query-num">4</div>
+        <div class="step-content">
+          <div class="title">Cross-Encoder Re-Ranking</div>
+          <div class="detail">Each candidate chunk is scored against the query with <code>cross-encoder/ms-marco-MiniLM-L-6-v2</code> — a model that reads the query and passage together for a much more precise relevance score than embedding similarity alone. Only the top <code>TOP_K_RESULTS</code> (default 6) survive.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num query-num">5</div>
+        <div class="step-content">
+          <div class="title">Build the Prompt</div>
+          <div class="detail">The answer prompt is assembled with 3 parts: <code>chat_history</code> (last 6 turns) + <code>context</code> (re-ranked chunks) + <code>question</code> (original user question). Strict instruction: answer ONLY from the context.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num query-num">6</div>
+        <div class="step-content">
+          <div class="title">AirLLM Generates the Answer (one blocking call)</div>
+          <div class="detail">The prompt is tokenized and run through <code>model.generate()</code>, which streams the model's layers from disk one at a time. There is no native token-by-token output — the full answer comes back at once, then <code>app.py</code> streams it word-by-word to the browser to mimic live typing.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num query-num">7</div>
+        <div class="step-content">
+          <div class="title">Show Source Citations + Save History</div>
+          <div class="detail">Source filenames and page numbers are appended below the answer. The question + answer are saved to <code>chat_history</code> (capped at last 6 turns) for use in the next question.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 4. DATA FLOW DIAGRAM ── -->
+  <div class="section">
+    <div class="section-title">4. Data Flow Diagram</div>
+    <div class="dataflow">
+      <div class="df-box"><div class="name">Browser</div><div class="sub">Chainlit UI</div></div>
+      <div class="df-arrow">⟷</div>
+      <div class="df-box"><div class="name">app.py</div><div class="sub">WebSocket handler</div></div>
+      <div class="df-arrow">→</div>
+      <div class="df-box"><div class="name">Hybrid Retriever</div><div class="sub">BM25 + vector, RRF</div></div>
+      <div class="df-arrow">→</div>
+      <div class="df-box"><div class="name">Cross-Encoder</div><div class="sub">re-rank to top-k</div></div>
+    </div>
+    <div style="text-align:center;color:#555;font-size:1.2rem;margin:6px 0;">↓</div>
+    <div class="dataflow">
+      <div class="df-box"><div class="name">Prompt</div><div class="sub">history+context+question</div></div>
+      <div class="df-arrow">→</div>
+      <div class="df-box"><div class="name">AirLLM</div><div class="sub">in-process, no server</div></div>
+      <div class="df-arrow">→</div>
+      <div class="df-box"><div class="name">Llama-3.1-70B</div><div class="sub">layers streamed from disk</div></div>
+      <div class="df-arrow">→</div>
+      <div class="df-box"><div class="name">Full Answer</div><div class="sub">then streamed word-by-word</div></div>
+    </div>
+  </div>
+
+  <!-- ── 5. CONFIGURATION ── -->
+  <div class="section">
+    <div class="section-title">5. Configuration — config.py</div>
+    <div class="grid2">
+      <div class="card">
+        <h3>Models</h3>
+        <ul>
+          <li><span>LLM</span><span class="val">Meta-Llama-3.1-70B-Instruct</span></li>
+          <li><span>LLM Runtime</span><span class="val">AirLLM (compression=4bit)</span></li>
+          <li><span>Embedding Model</span><span class="val">all-mpnet-base-v2</span></li>
+          <li><span>Re-ranker</span><span class="val">ms-marco-MiniLM-L-6-v2</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Chunking &amp; Retrieval</h3>
+        <ul>
+          <li><span>Chunk Size</span><span class="val">1500 chars</span></li>
+          <li><span>Chunk Overlap</span><span class="val">300 chars</span></li>
+          <li><span>Candidate Set</span><span class="val">Top-K × 4 (BM25 + vector)</span></li>
+          <li><span>Top-K Results</span><span class="val">6 chunks after re-ranking</span></li>
+          <li><span>History Window</span><span class="val">Last 6 turns</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Storage Paths</h3>
+        <ul>
+          <li><span>Documents folder</span><span class="val">./docs/</span></li>
+          <li><span>Vector store</span><span class="val">./vectorstore/</span></li>
+          <li><span>Collection name</span><span class="val">airllm_docs</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Hardware</h3>
+        <ul>
+          <li><span>Best on</span><span class="val">NVIDIA GPU (CUDA)</span></li>
+          <li><span>Fallback</span><span class="val">CPU-only (much slower)</span></li>
+          <li><span>Model server</span><span class="val">None — in-process</span></li>
+          <li><span>Internet required</span><span class="val">Only for first model/doc download</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 6. PROJECT FILES ── -->
+  <div class="section">
+    <div class="section-title">6. Project File Structure</div>
+    <table>
+      <tr><th>File</th><th>Role</th><th>When it runs</th></tr>
+      <tr><td><code>ingest.py</code></td><td>Ingestion pipeline — loads docs, splits, embeds locally, stores in ChromaDB</td><td>Once, after adding new documents</td></tr>
+      <tr><td><code>app.py</code></td><td>Chat interface — Chainlit server, hybrid retrieval, cross-encoder re-rank, AirLLM generation</td><td>Every time you start the app</td></tr>
+      <tr><td><code>config.py</code></td><td>Central config — model id, compression, chunk size, paths</td><td>Imported by both scripts</td></tr>
+      <tr><td><code>requirements.txt</code></td><td>Python package dependencies</td><td>Once, during setup</td></tr>
+      <tr><td><code>./docs/</code></td><td>Source documents (PDF, DOCX, TXT)</td><td>—</td></tr>
+      <tr><td><code>./vectorstore/</code></td><td>ChromaDB data (auto-created by ingest.py)</td><td>—</td></tr>
+      <tr><td><code>./.chainlit/</code></td><td>Chainlit config and UI translations (auto-created)</td><td>—</td></tr>
+    </table>
+  </div>
+
+  <!-- ── 7. SETUP COMMANDS ── -->
+  <div class="section">
+    <div class="section-title">7. Setup &amp; Run Commands</div>
+    <div class="card" style="max-width:100%">
+      <h3 style="margin-bottom:14px">One-time Setup</h3>
+      <pre style="background:#0d0f16;border-radius:8px;padding:16px;font-size:0.83rem;color:#a3e635;overflow-x:auto;line-height:1.8">cd AirLLM_RAG
+python3 -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -r requirements.txt
+huggingface-cli login   # required for gated models like Llama 3.1</pre>
+      <h3 style="margin:18px 0 14px">Every Time You Use It</h3>
+      <pre style="background:#0d0f16;border-radius:8px;padding:16px;font-size:0.83rem;color:#a3e635;overflow-x:auto;line-height:1.8">source .venv/bin/activate
+python ingest.py        # only needed after adding new docs
+chainlit run app.py     # open http://localhost:8000
+                         # first message is slow: AirLLM shards the model to disk</pre>
+    </div>
+  </div>
+
+  <!-- ── 8. COMPARISON WITH SecureDoc_RAG ── -->
+  <div class="section">
+    <div class="section-title">8. How This Differs from SecureDoc_RAG</div>
+    <table>
+      <tr><th>Aspect</th><th>SecureDoc_RAG</th><th>AirLLM_RAG</th></tr>
+      <tr><td>LLM runtime</td><td>Ollama (local HTTP server)</td><td>AirLLM (in-process, layer-streamed from disk)</td></tr>
+      <tr><td>Embeddings</td><td>Ollama · nomic-embed-text</td><td>sentence-transformers · all-mpnet-base-v2 (no server)</td></tr>
+      <tr><td>Retrieval</td><td>Hybrid BM25 + vector, RRF-merged</td><td>Same, plus a cross-encoder re-ranking pass</td></tr>
+      <tr><td>Answer delivery</td><td>True token-by-token streaming</td><td>Full answer generated, then streamed word-by-word to the UI</td></tr>
+      <tr><td>Model size ceiling</td><td>Bounded by RAM (Ollama loads the whole model)</td><td>Effectively unbounded — layers stream from disk, at the cost of speed</td></tr>
+      <tr><td>Ideal hardware</td><td>Apple Silicon (Metal via Ollama)</td><td>NVIDIA GPU (CUDA); CPU fallback is slow</td></tr>
+    </table>
+  </div>
+
+  <footer>AirLLM RAG · Layer-Streamed Local Inference · No data leaves your machine except the one-time model/doc download</footer>
+
+</body>
+</html>

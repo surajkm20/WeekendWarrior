@@ -1,0 +1,19 @@
+chainlit>=2.10.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-huggingface>=0.1.0
+langchain-chroma>=1.1.0
+chromadb>=1.0.0
+sentence-transformers>=3.0.0
+airllm>=2.11.0
+torch>=2.2.0
+
+# Apple Silicon only: airllm routes through an MLX backend on Mac but does not
+# declare these as dependencies itself. Not needed on CUDA machines.
+mlx>=0.32.0; sys_platform == "darwin" and platform_machine == "arm64"
+mlx-lm>=0.31.0; sys_platform == "darwin" and platform_machine == "arm64"
+pdfplumber>=0.11.0
+pypdf==4.3.1
+docx2txt>=0.8
+rank_bm25>=0.2.2
+dataclasses-json>=0.6.7
