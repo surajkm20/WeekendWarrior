@@ -70,3 +70,5 @@ SecureDoc_RAG/
 | `LLM_MODEL` | `llama3.2:3b` | Change to `llama3.1:8b` for 16GB RAM |
 | `CHUNK_SIZE` | `1000` | Characters per chunk |
 | `TOP_K_RESULTS` | `4` | Chunks retrieved per query |
+
+lsof -ti :8000 | xargs kill -9 2>/dev/null; python ingest.py && chainlit run app.py

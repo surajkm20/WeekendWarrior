@@ -19,24 +19,50 @@ FULL FLOW (what happens when you ask a question):
 3. If there is prior chat history, the question is first rephrased into a standalone question.
    (e.g. "what about the second one?" → "what is the second policy item?")
 4. The standalone question is used to search ChromaDB for the most relevant chunks.
-5. The chunks + chat history + question are injected into the prompt as context.
-6. The prompt is sent to Ollama via HTTP.
-7. Ollama runs llama3.2:3b and streams the answer back token by token.
-8. Chainlit streams each token to the browser in real time.
-9. Source citations (filename + page) are appended at the end.
-10. The question + answer are saved to chat history for the next turn.
+5. A cross-encoder re-ranker scores each candidate chunk against the query and keeps only
+   the top-k most relevant ones — eliminating noise before the LLM ever sees the context.
+6. The top-k chunks + chat history + question are injected into the prompt as context.
+7. The prompt is sent to Ollama via HTTP.
+8. Ollama streams the answer back token by token.
+9. Chainlit streams each token to the browser in real time.
+10. Source citations (filename + page) are appended at the end.
+11. The question + answer are saved to chat history for the next turn.
 
 Run with:
     chainlit run app.py
 Then open http://localhost:8000
 """
 
+# Python 3.14 + uvicorn compatibility fix:
+# uvicorn 0.42+ creates ASGI tasks with an empty contextvars.Context() to avoid
+# context pollution (cpython#140947). This causes asyncio.current_task() to return
+# None inside anyio's CancelScope, breaking anyio.to_thread.run_sync and anyio.open_file
+# (used by starlette's FileResponse for favicon/logo/assets).
+# Fix: replace anyio.to_thread.run_sync with asyncio's run_in_executor when current_task()
+# is None, bypassing anyio's CancelScope machinery entirely.
+import asyncio as _asyncio
+import anyio.to_thread as _anyio_to_thread
+
+_orig_anyio_run_sync = _anyio_to_thread.run_sync
+
+async def _patched_anyio_run_sync(func, *args, abandon_on_cancel=False, cancellable=None, limiter=None):
+    if _asyncio.current_task() is None:
+        loop = _asyncio.get_running_loop()
+        return await loop.run_in_executor(None, func, *args)
+    return await _orig_anyio_run_sync(func, *args, abandon_on_cancel=abandon_on_cancel,
+                                      cancellable=cancellable, limiter=limiter)
+
+_anyio_to_thread.run_sync = _patched_anyio_run_sync
+import anyio as _anyio
+_anyio.to_thread.run_sync = _patched_anyio_run_sync
+
 import chainlit as cl
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
+from langchain_community.retrievers import BM25Retriever
+from sentence_transformers import CrossEncoder
 
 from config import (
     OLLAMA_BASE_URL,
@@ -47,17 +73,16 @@ from config import (
     COLLECTION_NAME,
 )
 
+# Cross-encoder re-ranker loaded once at startup.
+# Given a (query, passage) pair it returns a relevance score.
+# We retrieve a broad candidate set (TOP_K_RESULTS * 4) then keep only the
+# top TOP_K_RESULTS chunks by cross-encoder score — removing noise before
+# the LLM ever sees the context.
+print("Loading cross-encoder re-ranker...")
+cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+print("Cross-encoder ready.")
+
 # --- CONTEXTUALIZE PROMPT ---
-# Before searching the documents, we first rephrase the user's question into a
-# "standalone" question that doesn't rely on prior conversation context.
-#
-# WHY? Because the retriever only sees the current question — not the history.
-# If the user asks "what about the premium?", the retriever won't understand
-# "what about" without knowing what was discussed before.
-# This step rewrites it as e.g. "What is the premium amount in the policy?"
-#
-# {chat_history} = previous Human/Assistant turns formatted as text
-# {question}     = the latest user question
 CONTEXTUALIZE_PROMPT = """Given the chat history below and the latest user question, \
 rewrite the question as a clear standalone question that can be understood \
 without the chat history. Do NOT answer the question — only rewrite it if needed. \
@@ -72,13 +97,30 @@ Standalone Question:"""
 
 
 # --- MAIN ANSWER PROMPT ---
-# This is the instruction we give to the LLM to generate the final answer.
-# {chat_history} = previous turns (so the LLM can give consistent follow-up answers)
-# {context}      = the most relevant document chunks retrieved from ChromaDB
-# {question}     = the current user question (standalone version)
-ANSWER_PROMPT = """You are a helpful assistant. Answer the question using ONLY the context provided below.
-If the answer is not found in the context, say "I don't have that information in the provided documents."
-Do not make up or infer information beyond what is in the context.
+ANSWER_PROMPT = """You are a precise technical assistant specializing in smart card and \
+security specifications (EMV, ISO 7816, GlobalPlatform, etc.).
+Answer using ONLY the context chunks provided below. Follow these principles:
+
+1. FOCUS: Use only chunks that directly define or describe what the user asked about.
+   Discard chunks about unrelated commands or concepts even if they appear in the context.
+
+2. ACCURACY: Reproduce tables, tag values, byte encodings, and field values exactly as
+   written — never paraphrase or infer values not explicitly stated in the context.
+   When reading a command table, always identify the column header first (e.g. CLA, INS,
+   P1, P2, Lc, Data) and map each value to its correct column — never swap row positions
+   or rely on memory for column order. Read left-to-right from the header row.
+   Do NOT expand acronyms (e.g. ARQC, AAC, AIP, AFL, ATC) unless the full expansion
+   is explicitly written in the retrieved context. Use the acronym as-is if not defined there.
+
+3. DATA FLOW: Always state clearly who creates a data object and who receives it
+   (e.g. ICC → terminal, or terminal → ICC). Never reverse the direction.
+
+4. CONSISTENCY: Before answering, check that your answer is internally consistent —
+   e.g. if a Data field is present, Lc must also be present; if you give a CLA value,
+   use only the one from the relevant command table, not a value from a different context.
+
+5. HONESTY: If the context does not contain enough information to answer the question
+   accurately, say so explicitly. Do not guess, infer, or substitute a related concept.
 
 Chat History:
 {chat_history}
@@ -92,11 +134,6 @@ Answer:"""
 
 
 def format_docs(docs):
-    """
-    Takes a list of retrieved document chunks and formats them into a single string.
-    Each chunk includes the source filename and page number so the LLM knows where it came from.
-    This formatted string becomes the {context} in the prompt.
-    """
     return "\n\n".join(
         f"[Source: {doc.metadata.get('source', 'unknown')} | Page: {doc.metadata.get('page', 'N/A')}]\n{doc.page_content}"
         for doc in docs
@@ -104,15 +141,6 @@ def format_docs(docs):
 
 
 def format_history(chat_history: list) -> str:
-    """
-    Converts the chat history list into a readable string for the prompt.
-
-    chat_history is stored as a list of dicts: [{"human": "...", "ai": "..."}, ...]
-    This function formats it as:
-        Human: ...
-        Assistant: ...
-    If there is no history yet, returns an empty string.
-    """
     if not chat_history:
         return ""
     return "\n".join(
@@ -121,43 +149,67 @@ def format_history(chat_history: list) -> str:
     )
 
 
+async def rerank(query: str, docs: list, top_k: int) -> list:
+    """Score each doc against the query with the cross-encoder and return top_k."""
+    if not docs:
+        return docs
+    pairs = [(query, doc.page_content) for doc in docs]
+    loop = _asyncio.get_running_loop()
+    scores = await loop.run_in_executor(None, cross_encoder.predict, pairs)
+    ranked = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
+    return [doc for _, doc in ranked[:top_k]]
+
+
 @cl.on_chat_start
 async def on_chat_start():
-    """
-    This function runs ONCE when a user opens the chat in the browser.
-
-    FLOW:
-    1. Connect to ChromaDB (the local vector database where your document chunks are stored).
-    2. Create a retriever — this will search ChromaDB for relevant chunks when given a query.
-    3. Connect to Ollama — the local server running the LLM (llama3.2:3b).
-    4. Save the retriever, LLM, and an empty chat history in the user session.
-    5. Send a welcome message to the browser.
-    """
-
-    # Step 1: Load the same embedding model used during ingestion.
-    # This is needed to convert the user's question into a vector for similarity search.
     embeddings = OllamaEmbeddings(model=EMBED_MODEL, base_url=OLLAMA_BASE_URL)
 
-    # Step 2: Connect to the existing ChromaDB vector store (created by ingest.py).
     vectorstore = Chroma(
-        persist_directory=VECTORSTORE_DIR,      # folder where ChromaDB data is saved
+        persist_directory=VECTORSTORE_DIR,
         embedding_function=embeddings,
         collection_name=COLLECTION_NAME,
     )
 
-    # Step 3: Create a retriever that fetches the top K most relevant chunks for any query.
-    retriever = vectorstore.as_retriever(search_kwargs={"k": TOP_K_RESULTS})
+    # Build BM25 index over all stored chunks.
+    all_chunks = vectorstore.get(include=["documents", "metadatas"])
+    from langchain_core.documents import Document
+    docs_for_bm25 = [
+        Document(page_content=txt, metadata=meta)
+        for txt, meta in zip(all_chunks["documents"], all_chunks["metadatas"])
+    ]
+    bm25_retriever = BM25Retriever.from_documents(docs_for_bm25, k=TOP_K_RESULTS * 2)
 
-    # Step 4: Connect to the local LLM via Ollama.
+    # Hybrid retriever: BM25 + vector merged with Reciprocal Rank Fusion.
+    # Returns a wider candidate set (TOP_K_RESULTS * 4) so the cross-encoder
+    # has enough candidates to pick the truly relevant ones from.
+    class HybridRetriever:
+        def invoke(self, query):
+            bm25_results = bm25_retriever.invoke(query)
+            vector_results = vectorstore.similarity_search_with_score(query, k=TOP_K_RESULTS * 2)
+
+            rrf_scores: dict[str, float] = {}
+            doc_map: dict[str, object] = {}
+
+            for rank, doc in enumerate(bm25_results):
+                key = doc.page_content
+                rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (rank + 60)
+                doc_map[key] = doc
+
+            for rank, (doc, _) in enumerate(vector_results):
+                key = doc.page_content
+                rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (rank + 60)
+                doc_map[key] = doc
+
+            ranked_keys = sorted(rrf_scores, key=lambda k: rrf_scores[k], reverse=True)
+            return [doc_map[k] for k in ranked_keys[:TOP_K_RESULTS * 4]]
+
+    retriever = HybridRetriever()
     llm = ChatOllama(model=LLM_MODEL, base_url=OLLAMA_BASE_URL)
 
-    # Step 5: Save retriever, LLM, and empty history in the user session.
-    # chat_history is a list of {"human": ..., "ai": ...} dicts — grows with each turn.
     cl.user_session.set("retriever", retriever)
     cl.user_session.set("llm", llm)
     cl.user_session.set("chat_history", [])
 
-    # Send a welcome message to the browser.
     await cl.Message(
         content=f"SecureDoc RAG ready. Model: `{LLM_MODEL}` | Ask me anything about your documents."
     ).send()
@@ -165,31 +217,13 @@ async def on_chat_start():
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    """
-    This function runs EVERY TIME the user sends a message in the chat.
-
-    FLOW:
-    1. Load the retriever, LLM, and chat history from the session.
-    2. Format the chat history into a readable string.
-    3. If there is history, rephrase the question into a standalone question using the LLM.
-       If no history, use the question as-is.
-    4. Use the standalone question to retrieve relevant chunks from ChromaDB.
-    5. Build the final prompt: history + context + question → send to LLM.
-    6. Stream the answer token by token to the browser.
-    7. Append source citations at the bottom.
-    8. Save this turn (question + answer) to chat history for future turns.
-    """
-
-    # Step 1: Load saved objects from the session.
     retriever    = cl.user_session.get("retriever")
     llm          = cl.user_session.get("llm")
-    chat_history = cl.user_session.get("chat_history")  # list of past turns
+    chat_history = cl.user_session.get("chat_history")
 
-    # Step 2: Format history into a string for use in prompts.
     history_text = format_history(chat_history)
 
-    # Step 3: Rephrase the question into a standalone version if there is prior history.
-    # This ensures the retriever can understand follow-up questions like "what about that?"
+    # Rephrase follow-up questions into standalone questions for retrieval.
     if chat_history:
         contextualize_prompt = ChatPromptTemplate.from_template(CONTEXTUALIZE_PROMPT)
         contextualize_chain  = contextualize_prompt | llm | StrOutputParser()
@@ -198,27 +232,27 @@ async def on_message(message: cl.Message):
             "question": message.content,
         })
     else:
-        # No history yet — the question is already standalone.
         standalone_question = message.content
 
-    # Step 4: Retrieve the most relevant document chunks using the standalone question.
-    # This converts the question to a vector and does similarity search in ChromaDB.
-    source_docs = retriever.invoke(standalone_question)
-    context     = format_docs(source_docs)
+    # Retrieve a broad candidate set (BM25 + vector, TOP_K_RESULTS * 4 candidates).
+    # Augment query with uppercase so BM25 matches EMV command names typed in lowercase.
+    search_query = standalone_question + " " + standalone_question.upper()
+    candidates = retriever.invoke(search_query)
 
-    # Collect unique source citations for display at the end.
-    # e.g. "AckoPolicy.pdf (page 3)"
+    # Cross-encoder re-ranking: score every candidate against the actual query,
+    # keep only the top TOP_K_RESULTS. This is the principled replacement for all
+    # the keyword/phrase heuristics that were patching specific failure cases.
+    source_docs = await rerank(standalone_question, candidates, TOP_K_RESULTS)
+
+    context = format_docs(source_docs)
     sources = list({
         f"{doc.metadata.get('source', 'unknown')} (page {doc.metadata.get('page', 'N/A')})"
         for doc in source_docs
     })
 
-    # Step 5: Build the final answer prompt with history + context + question.
     answer_prompt = ChatPromptTemplate.from_template(ANSWER_PROMPT)
     answer_chain  = answer_prompt | llm | StrOutputParser()
 
-    # Step 6: Stream the answer token by token to the browser.
-    # This gives the user the real-time typing effect.
     response = cl.Message(content="")
     await response.send()
 
@@ -226,20 +260,22 @@ async def on_message(message: cl.Message):
     async for chunk in answer_chain.astream({
         "chat_history": history_text,
         "context":      context,
-        "question":     message.content,   # use original question (not rephrased) for the final answer
+        "question":     message.content,
     }):
         await response.stream_token(chunk)
         full_answer += chunk
 
-    # Step 7: Append source citations so the user knows which documents were used.
     if sources:
-        citation_text = "\n\n---\n**Sources used:**\n" + "\n".join(f"- {s}" for s in sources)
-        await response.stream_token(citation_text)
+        items = "\n".join(f"- {s}" for s in sources)
+        source_element = cl.Text(
+            name=f"Sources used ({len(sources)})",
+            content=items,
+            display="side",
+        )
+        response.elements = [source_element]
+        await response.stream_token(f"\n\n📄 *Sources used ({len(sources)})*")
 
-    # Finalize the message (marks streaming as complete).
     await response.update()
 
-    # Step 8: Save this turn to chat history so future questions can reference it.
-    # We keep only the last 6 turns to avoid making the prompt too long.
     chat_history.append({"human": message.content, "ai": full_answer})
     cl.user_session.set("chat_history", chat_history[-6:])

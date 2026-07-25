@@ -219,7 +219,7 @@
       <div class="arrow-down">↕ reads model files from disk</div>
       <div class="stack-layer l5">
         <div class="label">AI Models (on disk)</div>
-        <div class="desc">llama3.2:3b — answer generation &nbsp;|&nbsp; nomic-embed-text — text embeddings</div>
+        <div class="desc">llama3.1:8b — answer generation &nbsp;|&nbsp; nomic-embed-text — text embeddings</div>
         <div class="badge">~/.ollama/models/ · fully offline after download</div>
       </div>
     </div>
@@ -240,7 +240,7 @@
         <div class="step-num ingest-num">2</div>
         <div class="step-content">
           <div class="title">Split into Chunks</div>
-          <div class="detail">RecursiveCharacterTextSplitter splits text into chunks of <code>1000 chars</code> with <code>150 char overlap</code>. Overlap prevents losing context at boundaries. Tries to split on paragraphs → sentences → words.</div>
+          <div class="detail">RecursiveCharacterTextSplitter splits text into chunks of <code>1500 chars</code> with <code>300 char overlap</code>. Overlap prevents losing context at boundaries. Tries to split on paragraphs → sentences → words.</div>
         </div>
       </div>
       <div class="flow-step">
@@ -282,7 +282,7 @@
         <div class="step-num query-num">3</div>
         <div class="step-content">
           <div class="title">Vector Similarity Search in ChromaDB</div>
-          <div class="detail">The standalone question is converted to a vector using <code>nomic-embed-text</code>. ChromaDB finds the top <code>4</code> most similar chunks by comparing vectors. Returns the raw text of those chunks + their source metadata.</div>
+          <div class="detail">The standalone question is converted to a vector using <code>nomic-embed-text</code>. ChromaDB finds the top <code>16</code> most similar chunks by comparing vectors. Returns the raw text of those chunks + their source metadata.</div>
         </div>
       </div>
       <div class="flow-step">
@@ -296,7 +296,7 @@
         <div class="step-num query-num">5</div>
         <div class="step-content">
           <div class="title">LLM Generates Answer (streamed)</div>
-          <div class="detail"><code>llama3.2:3b</code> runs locally via Ollama. The answer is streamed token by token back through LangChain → Chainlit → WebSocket → Browser. User sees text appearing in real time.</div>
+          <div class="detail"><code>llama3.1:8b</code> runs locally via Ollama. The answer is streamed token by token back through LangChain → Chainlit → WebSocket → Browser. User sees text appearing in real time.</div>
         </div>
       </div>
       <div class="flow-step">
@@ -327,7 +327,7 @@
       <div class="df-arrow">→</div>
       <div class="df-box"><div class="name">Ollama</div><div class="sub">localhost:11434</div></div>
       <div class="df-arrow">→</div>
-      <div class="df-box"><div class="name">llama3.2:3b</div><div class="sub">~/.ollama/models</div></div>
+      <div class="df-box"><div class="name">llama3.1:8b</div><div class="sub">~/.ollama/models</div></div>
       <div class="df-arrow">→</div>
       <div class="df-box"><div class="name">Streamed Answer</div><div class="sub">token by token</div></div>
     </div>
@@ -340,7 +340,7 @@
       <div class="card">
         <h3>Models</h3>
         <ul>
-          <li><span>LLM</span><span class="val">llama3.2:3b</span></li>
+          <li><span>LLM</span><span class="val">llama3.1:8b</span></li>
           <li><span>Embedding Model</span><span class="val">nomic-embed-text</span></li>
           <li><span>Ollama Server</span><span class="val">http://localhost:11434</span></li>
         </ul>
@@ -348,9 +348,9 @@
       <div class="card">
         <h3>Chunking &amp; Retrieval</h3>
         <ul>
-          <li><span>Chunk Size</span><span class="val">1000 chars</span></li>
-          <li><span>Chunk Overlap</span><span class="val">150 chars</span></li>
-          <li><span>Top-K Results</span><span class="val">4 chunks per query</span></li>
+          <li><span>Chunk Size</span><span class="val">1500 chars</span></li>
+          <li><span>Chunk Overlap</span><span class="val">300 chars</span></li>
+          <li><span>Top-K Results</span><span class="val">16 chunks per query</span></li>
           <li><span>History Window</span><span class="val">Last 6 turns</span></li>
         </ul>
       </div>
@@ -395,7 +395,7 @@
     <div class="card" style="max-width:100%">
       <h3 style="margin-bottom:14px">One-time Setup</h3>
       <pre style="background:#0d0f16;border-radius:8px;padding:16px;font-size:0.83rem;color:#a3e635;overflow-x:auto;line-height:1.8">brew install python@3.12 ollama
-ollama pull llama3.2:3b
+ollama pull llama3.1:8b
 ollama pull nomic-embed-text
 python3.12 -m venv .venv &amp;&amp; source .venv/bin/activate
 pip install -r requirements.txt</pre>
@@ -407,6 +407,51 @@ ollama serve
 source .venv/bin/activate
 python ingest.py        # only needed after adding new docs
 chainlit run app.py     # open http://localhost:8000</pre>
+    </div>
+  </div>
+
+  <!-- ── 8. FUTURE UPDATES ── -->
+  <div class="section">
+    <div class="section-title">8. Future Updates (Roadmap)</div>
+    <div class="flow">
+
+      <div class="flow-step">
+        <div class="step-num" style="background:#1a3a2a;color:#4ade80;min-width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">+</div>
+        <div class="step-content">
+          <div class="title">In-Chat Document Upload (+ Button)</div>
+          <div class="detail">
+            A <code>+</code> button in the Chainlit chat UI will let users upload PDFs, DOCX, or TXT files directly mid-conversation.
+            On upload, the file is automatically saved to <code>./docs/</code> and the full ingestion pipeline (split → embed → store in ChromaDB) runs in the background without needing to restart the app.
+            The chat responds with a confirmation once the new document is indexed and ready to query.
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num" style="background:#2a1a3a;color:#c084fc;min-width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">⇆</div>
+        <div class="step-content">
+          <div class="title">Multi-Agent Architecture</div>
+          <div class="detail">
+            Replace the single RAG chain with a supervisor + specialist agent pattern.
+            A <strong>Router Agent</strong> classifies each query and delegates to the right specialist:
+            a <strong>Retrieval Agent</strong> (semantic + BM25 search), a <strong>Summarisation Agent</strong> (condense long documents), and a <strong>Comparison Agent</strong> (diff two policy documents side-by-side).
+            Agents share a common memory store and can call each other, enabling multi-hop reasoning across documents.
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num" style="background:#1e3a5f;color:#60a5fa;min-width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">⚡</div>
+        <div class="step-content">
+          <div class="title">Streaming Progress Feedback</div>
+          <div class="detail">
+            During auto-ingestion and multi-agent runs, a real-time progress bar streams status back through the WebSocket:
+            <code>Loading file…</code> → <code>Splitting into chunks…</code> → <code>Embedding (chunk 12/48)…</code> → <code>Saved to ChromaDB. Ready.</code>
+            Users always know what's happening without needing to check the terminal.
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
