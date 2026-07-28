@@ -190,12 +190,21 @@ def main():
     embeddings = OllamaEmbeddings(model=EMBED_MODEL, base_url=OLLAMA_BASE_URL)
 
     print(f"Storing in ChromaDB at {VECTORSTORE_DIR}...")
-    Chroma.from_documents(
-        documents=chunks,
-        embedding=embeddings,
+    # Ollama's embed API takes the whole `texts` list in a single request with no
+    # internal batching. The local embedding server was started with a fixed
+    # batch/context size (-b/-c), so sending thousands of chunks in one call
+    # overflows it and crashes the connection (EOF during /tokenize). Batching
+    # keeps each request within that limit.
+    EMBED_BATCH_SIZE = 64
+    vectorstore = Chroma(
+        embedding_function=embeddings,
         persist_directory=VECTORSTORE_DIR,
         collection_name=COLLECTION_NAME,
     )
+    for i in range(0, len(chunks), EMBED_BATCH_SIZE):
+        batch = chunks[i : i + EMBED_BATCH_SIZE]
+        vectorstore.add_documents(batch)
+        print(f"  Embedded {min(i + EMBED_BATCH_SIZE, len(chunks))}/{len(chunks)} chunks")
 
     print(f"\nDone. Ingested {len(chunks)} chunks from {len(documents)} document(s).")
     print("You can now run: chainlit run app.py")
